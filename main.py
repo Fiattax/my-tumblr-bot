@@ -7,7 +7,7 @@ import threading
 from flask import Flask
 from telebot.types import InputMediaPhoto
 
-TOKEN = '8585002370:AAFXBAT7k5j-6vjD1N6g6h97XGwyusi4Fgo'
+TOKEN = '8585002370:AAG_1RpQtmC3ZOQR0efFjhsSSoeZXh8LLxU'
 bot = telebot.TeleBot(TOKEN)
 server = Flask(__name__)
 
