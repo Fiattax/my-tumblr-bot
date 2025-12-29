@@ -6,68 +6,83 @@ from yt_dlp import YoutubeDL
 import threading
 from flask import Flask
 
-# Настройки
 TOKEN = '8585002370:AAFXBAT7k5j-6vjD1N6g6h97XGwyusi4Fgo'
 bot = telebot.TeleBot(TOKEN)
 server = Flask(__name__)
 
-def get_tumblr_media(url):
-    """Улучшенный метод поиска только нужного медиа"""
+def get_media_with_ydl(url):
+    """Попытка найти видео через официальную библиотеку"""
+    ydl_opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'format': 'bestvideo+bestaudio/best',
+        'socket_timeout': 10
+    }
+    try:
+        with YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            if 'url' in info:
+                return {'type': 'video', 'url': info['url']}
+    except:
+        return None
+
+def get_media_manual(url):
+    """Запасной метод: ручной поиск в коде страницы"""
     try:
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, timeout=10)
         html = response.text
 
-        # 1. Ищем видео (теги <source> или ссылки на mp4)
-        videos = re.findall(r'https://va\.media\.tumblr\.com/[^"\s<>]+?\.mp4', html)
-        if videos:
-            # Берем самое первое видео, обычно это оригинал
-            return {'type': 'video', 'url': videos[0]}
+        # Ищем видео
+        video_links = re.findall(r'https://va\.media\.tumblr\.com/[^"\s<>]+?\.mp4', html)
+        if video_links:
+            return {'type': 'video', 'url': video_links[0]}
 
-        # 2. Ищем фото (только крупные оригиналы)
-        # Фильтруем ссылки, чтобы там были признаки высокого разрешения (s1280, s2048 или raw)
-        images = re.findall(r'https://\d+\.media\.tumblr\.com/[^"\s<>]+', html)
+        # Ищем фото (фильтруем мусор)
+        image_links = re.findall(r'https://\d+\.media\.tumblr\.com/[^"\s<>]+', html)
         valid_photos = []
-        for img in list(set(images)):
-            # Игнорируем аватарки, баннеры и иконки
-            if any(junk in img.lower() for junk in ['avatar', 'header', 'logo', 'theme']):
+        for img in list(set(image_links)):
+            if any(x in img.lower() for x in ['avatar', 'header', 'logo', 'theme', 'face']):
                 continue
-            # Оставляем только те, что выглядят как основной контент (обычно длинные ID)
-            if len(img.split('/')[-1]) > 20: 
+            # Обычно качественные фото имеют в ссылке s1280 или s2048
+            if 's1280' in img or 's2048' in img or '74.media' in img:
                 valid_photos.append(img)
         
         if valid_photos:
-            return {'type': 'photo', 'urls': valid_photos[:10]} # Лимит 10 фото
-
-    except Exception as e:
-        print(f"Ошибка парсинга: {e}")
+            return {'type': 'photo', 'urls': valid_photos[:5]}
+            
+    except:
+        pass
     return None
 
 @bot.message_handler(func=lambda message: 'tumblr.com' in message.text)
 def handle_link(message):
     url = re.search(r'(https?://[^\s]+)', message.text).group(1)
-    bot.reply_to(message, "⚙️ Фильтрую контент...")
+    msg = bot.reply_to(message, "🔍 Ищу медиа...")
 
-    result = get_tumblr_media(url)
+    # Способ 1: Пытаемся найти видео через yt-dlp
+    result = get_media_with_ydl(url)
     
+    # Способ 2: Если видео не найдено, ищем вручную
     if not result:
-        bot.reply_to(message, "❌ Не удалось найти видео или фото в хорошем качестве.")
-        return
+        result = get_media_manual(url)
 
-    if result['type'] == 'video':
-        bot.send_video(message.chat.id, result['url'], caption="Ваше видео готово!")
-    
-    elif result['type'] == 'photo':
-        for img_url in result['urls']:
-            try:
-                bot.send_photo(message.chat.id, img_url)
-            except:
-                continue
+    if result:
+        try:
+            if result['type'] == 'video':
+                bot.send_video(message.chat.id, result['url'])
+            else:
+                for img_url in result['urls']:
+                    bot.send_photo(message.chat.id, img_url)
+            bot.delete_message(message.chat.id, msg.message_id)
+        except Exception as e:
+            bot.edit_message_text(f"❌ Ошибка при отправке: {str(e)[:50]}", message.chat.id, msg.message_id)
+    else:
+        bot.edit_message_text(" Не удалось найти файлы. Возможно, пост защищен или это только текст.", message.chat.id, msg.message_id)
 
-# Блок для Render (Flask)
 @server.route("/")
 def hello():
-    return "Бот работает!"
+    return "OK"
 
 if __name__ == "__main__":
     threading.Thread(target=bot.infinity_polling).start()
