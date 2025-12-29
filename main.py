@@ -5,18 +5,16 @@ import os
 from yt_dlp import YoutubeDL
 import threading
 from flask import Flask
+from telebot.types import InputMediaPhoto
 
 TOKEN = '8585002370:AAFXBAT7k5j-6vjD1N6g6h97XGwyusi4Fgo'
 bot = telebot.TeleBot(TOKEN)
 server = Flask(__name__)
 
 def get_media_with_ydl(url):
-    """Попытка найти видео через официальную библиотеку"""
     ydl_opts = {
-        'quiet': True,
-        'no_warnings': True,
-        'format': 'bestvideo+bestaudio/best',
-        'socket_timeout': 10
+        'quiet': True, 'no_warnings': True,
+        'format': 'bestvideo+bestaudio/best', 'socket_timeout': 10
     }
     try:
         with YoutubeDL(ydl_opts) as ydl:
@@ -27,29 +25,25 @@ def get_media_with_ydl(url):
         return None
 
 def get_media_manual(url):
-    """Запасной метод: ручной поиск в коде страницы"""
     try:
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         response = requests.get(url, headers=headers, timeout=10)
         html = response.text
 
-        # Ищем видео
         video_links = re.findall(r'https://va\.media\.tumblr\.com/[^"\s<>]+?\.mp4', html)
         if video_links:
             return {'type': 'video', 'url': video_links[0]}
 
-        # Ищем фото (фильтруем мусор)
         image_links = re.findall(r'https://\d+\.media\.tumblr\.com/[^"\s<>]+', html)
         valid_photos = []
         for img in list(set(image_links)):
             if any(x in img.lower() for x in ['avatar', 'header', 'logo', 'theme', 'face']):
                 continue
-            # Обычно качественные фото имеют в ссылке s1280 или s2048
             if 's1280' in img or 's2048' in img or '74.media' in img:
                 valid_photos.append(img)
         
         if valid_photos:
-            return {'type': 'photo', 'urls': valid_photos[:5]}
+            return {'type': 'photo', 'urls': valid_photos} # Забираем ВСЕ найденные фото
             
     except:
         pass
@@ -58,30 +52,30 @@ def get_media_manual(url):
 @bot.message_handler(func=lambda message: 'tumblr.com' in message.text)
 def handle_link(message):
     url = re.search(r'(https?://[^\s]+)', message.text).group(1)
-    msg = bot.reply_to(message, "🔍 Ищу медиа...")
+    msg = bot.reply_to(message, "🔍 Собираю все медиа...")
 
-    # Способ 1: Пытаемся найти видео через yt-dlp
     result = get_media_with_ydl(url)
-    
-    # Способ 2: Если видео не найдено, ищем вручную
     if not result:
         result = get_media_manual(url)
 
     if result:
         try:
             if result['type'] == 'video':
-                # Добавлен ответ на сообщение со ссылкой
                 bot.send_video(message.chat.id, result['url'], reply_to_message_id=message.message_id)
-            else:
-                for img_url in result['urls']:
-                    # Добавлен ответ на сообщение со ссылкой
-                    bot.send_photo(message.chat.id, img_url, reply_to_message_id=message.message_id)
+            
+            elif result['type'] == 'photo':
+                photos = result['urls']
+                # Разбиваем список фото на части по 10 штук
+                for i in range(0, len(photos), 10):
+                    chunk = photos[i:i + 10]
+                    media_group = [InputMediaPhoto(img_url) for img_url in chunk]
+                    bot.send_media_group(message.chat.id, media_group, reply_to_message_id=message.message_id)
+            
             bot.delete_message(message.chat.id, msg.message_id)
         except Exception as e:
-            print(f"Ошибка отправки: {e}")
-            bot.edit_message_text(f"❌ Ошибка при отправке: {str(e)[:50]}", message.chat.id, msg.message_id)
+            bot.edit_message_text(f"❌ Ошибка: {str(e)[:50]}", message.chat.id, msg.message_id)
     else:
-        bot.edit_message_text("😔 Не удалось найти файлы. Возможно, пост защищен или это только текст.", message.chat.id, msg.message_id)
+        bot.edit_message_text(" Не удалось найти файлы.", message.chat.id, msg.message_id)
 
 @server.route("/")
 def hello():
