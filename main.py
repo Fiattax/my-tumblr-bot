@@ -6,7 +6,6 @@ from yt_dlp import YoutubeDL
 import threading
 from flask import Flask
 
-# Твой токен уже вставлен
 TOKEN = '8585002370:AAFXBAT7k5j-6vjD1N6g6h97XGwyusi4Fgo'
 bot = telebot.TeleBot(TOKEN)
 server = Flask(__name__)
@@ -45,6 +44,7 @@ def get_media_manual(url):
         for img in list(set(image_links)):
             if any(x in img.lower() for x in ['avatar', 'header', 'logo', 'theme', 'face']):
                 continue
+            # Обычно качественные фото имеют в ссылке s1280 или s2048
             if 's1280' in img or 's2048' in img or '74.media' in img:
                 valid_photos.append(img)
         
@@ -60,24 +60,25 @@ def handle_link(message):
     url = re.search(r'(https?://[^\s]+)', message.text).group(1)
     msg = bot.reply_to(message, "🔍 Ищу медиа...")
 
+    # Способ 1: Пытаемся найти видео через yt-dlp
     result = get_media_with_ydl(url)
     
+    # Способ 2: Если видео не найдено, ищем вручную
     if not result:
         result = get_media_manual(url)
 
     if result:
         try:
             if result['type'] == 'video':
-                # Здесь добавлена функция ответа (Reply)
+                # Добавлен ответ на сообщение со ссылкой
                 bot.send_video(message.chat.id, result['url'], reply_to_message_id=message.message_id)
             else:
                 for img_url in result['urls']:
-                    # И здесь добавлена функция ответа (Reply)
+                    # Добавлен ответ на сообщение со ссылкой
                     bot.send_photo(message.chat.id, img_url, reply_to_message_id=message.message_id)
-            
-            # Удаляем временное сообщение "Ищу медиа..."
             bot.delete_message(message.chat.id, msg.message_id)
         except Exception as e:
+            print(f"Ошибка отправки: {e}")
             bot.edit_message_text(f"❌ Ошибка при отправке: {str(e)[:50]}", message.chat.id, msg.message_id)
     else:
         bot.edit_message_text("😔 Не удалось найти файлы. Возможно, пост защищен или это только текст.", message.chat.id, msg.message_id)
