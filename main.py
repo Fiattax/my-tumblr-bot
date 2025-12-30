@@ -7,7 +7,7 @@ import threading
 from flask import Flask
 from telebot.types import InputMediaPhoto
 
-TOKEN = '8585002370:AAG_1RpQtmC3ZOQR0efFjhsSSoeZXh8LLxU'
+TOKEN = '8585002370:AAGYUCBwyzp4NLvzd4JHlBhvM_M2ayPtPGc'
 bot = telebot.TeleBot(TOKEN)
 server = Flask(__name__)
 
@@ -81,8 +81,11 @@ def handle_link(message):
 def hello():
     return "OK"
 
+# Вместо старого блока в самом низу файла:
 if __name__ == "__main__":
-    # skip_pending=True заставит бота игнорировать старые сообщения после пробуждения
-    threading.Thread(target=bot.infinity_polling, kwargs={'skip_pending': True}).start()
-    port = int(os.environ.get("PORT", 5000))
-    server.run(host='0.0.0.0', port=port)
+    # Запускаем Flask в отдельном потоке
+    threading.Thread(target=lambda: server.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000))), daemon=True).start()
+    
+    # Запускаем бота в основном потоке (так надежнее для Render)
+    print("Бот запущен...")
+    bot.infinity_polling(skip_pending=True)
